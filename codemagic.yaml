@@ -1,33 +1,34 @@
 workflows:
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # ios-release  —  Build + sign IPA for App Store Connect
+  # ios-release  —  Build + sign IPA for App Store Connect / TestFlight
   # ─────────────────────────────────────────────────────────────────────────────
   ios-release:
     name: iOS Release
     max_build_duration: 60
     instance_type: mac_mini_m2
     integrations:
-      app_store_connect: ASC_API_KEY   # Codemagic ASC API key name
-
+      app_store_connect: admin
     environment:
-      vars:
-        BUNDLE_ID: com.idealai.timestables
-        APP_STORE_APPLE_ID: "6768185530"  # fill in after ASC app record created
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.idealai.timestables
       flutter: stable
       xcode: latest
       cocoapods: default
       groups:
-        - google_play  # shared keystore group (not used on iOS but keeps parity)
+        - google_play  # parity with other studio apps; contains GCLOUD creds
 
     scripts:
-      - name: Set up code signing
+      - name: Extract version from pubspec
         script: |
-          keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE --create
-          keychain add-certificates
-          xcode-project use-profiles
+          VERSION_NAME=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          BUILD_NUMBER=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
+          if [ -z "$BUILD_NUMBER" ] || [ "$BUILD_NUMBER" = "$VERSION_NAME" ]; then
+            BUILD_NUMBER=$PROJECT_BUILD_NUMBER
+          fi
+          echo "VERSION_NAME=$VERSION_NAME" >> $CM_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
 
       - name: Get Flutter packages
         script: flutter pub get
@@ -38,9 +39,19 @@ workflows:
       - name: Flutter test
         script: flutter test
 
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios
+          pod repo update
+          pod install
+
+      - name: Set up code signing
+        script: xcode-project use-profiles
+
       - name: Build IPA
         script: |
           flutter build ipa --release \
+            --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
 
     artifacts:
@@ -50,8 +61,11 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: false   # manual upload for v1.0.0; enable from v1.0.5
+        submit_to_testflight: true
         submit_to_app_store: false
+      email:
+        recipients: [nalhamzy@gmail.com]
+        notify: {success: true, failure: true}
 
   # ─────────────────────────────────────────────────────────────────────────────
   # android-release  —  Build signed AAB for Google Play
@@ -59,26 +73,26 @@ workflows:
   android-release:
     name: Android Release
     max_build_duration: 60
-    instance_type: linux_x2
+    instance_type: mac_mini_m2
 
     environment:
       vars:
         PACKAGE_NAME: com.idealai.timestables
       flutter: stable
+      java: 17
       groups:
-        - google_play  # must contain: GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
-                       # KEYSTORE (base64), KEY_ALIAS, KEY_PASSWORD, STORE_PASSWORD
+        - google_play
 
     scripts:
-      - name: Set up key.properties
+      - name: Extract version from pubspec
         script: |
-          echo "$KEYSTORE" | base64 --decode > $CM_BUILD_DIR/android/upload-keystore.jks
-          cat > $CM_BUILD_DIR/android/key.properties <<EOF
-          storePassword=$STORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=../upload-keystore.jks
-          EOF
+          VERSION_NAME=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          BUILD_NUMBER=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
+          if [ -z "$BUILD_NUMBER" ] || [ "$BUILD_NUMBER" = "$VERSION_NAME" ]; then
+            BUILD_NUMBER=$PROJECT_BUILD_NUMBER
+          fi
+          echo "VERSION_NAME=$VERSION_NAME" >> $CM_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
 
       - name: Get Flutter packages
         script: flutter pub get
@@ -90,7 +104,9 @@ workflows:
         script: flutter test
 
       - name: Build AAB
-        script: flutter build appbundle --release
+        script: |
+          flutter build appbundle --release \
+            --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
 
     artifacts:
       - build/app/outputs/bundle/release/*.aab
@@ -101,46 +117,48 @@ workflows:
         credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
         track: internal
         submit_as_draft: true
+      email:
+        recipients: [nalhamzy@gmail.com]
+        notify: {success: true, failure: true}
 
   # ─────────────────────────────────────────────────────────────────────────────
-  # release-both  —  Trigger both iOS and Android in one click
+  # release-both  —  Build both platforms from a single v* tag push
   # ─────────────────────────────────────────────────────────────────────────────
   release-both:
-    name: Release Both Platforms
+    name: Release (iOS + Android)
     max_build_duration: 90
     instance_type: mac_mini_m2
+    triggering:
+      events: [tag]
+      tag_patterns:
+        - pattern: 'v*'
+          include: true
     integrations:
-      app_store_connect: ASC_API_KEY
+      app_store_connect: admin
 
     environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.idealai.timestables
       vars:
-        BUNDLE_ID: com.idealai.timestables
         PACKAGE_NAME: com.idealai.timestables
-        APP_STORE_APPLE_ID: "6768185530"
       flutter: stable
       xcode: latest
       cocoapods: default
+      java: 17
       groups:
         - google_play
 
     scripts:
-      - name: Set up iOS code signing
+      - name: Extract version from pubspec
         script: |
-          keychain initialize
-          app-store-connect fetch-signing-files "$BUNDLE_ID" \
-            --type IOS_APP_STORE --create
-          keychain add-certificates
-          xcode-project use-profiles
-
-      - name: Set up Android key.properties
-        script: |
-          echo "$KEYSTORE" | base64 --decode > $CM_BUILD_DIR/android/upload-keystore.jks
-          cat > $CM_BUILD_DIR/android/key.properties <<EOF
-          storePassword=$STORE_PASSWORD
-          keyPassword=$KEY_PASSWORD
-          keyAlias=$KEY_ALIAS
-          storeFile=../upload-keystore.jks
-          EOF
+          VERSION_NAME=$(grep '^version:' pubspec.yaml | sed 's/version: //' | sed 's/+.*//')
+          BUILD_NUMBER=$(grep '^version:' pubspec.yaml | sed 's/.*+//')
+          if [ -z "$BUILD_NUMBER" ] || [ "$BUILD_NUMBER" = "$VERSION_NAME" ]; then
+            BUILD_NUMBER=$PROJECT_BUILD_NUMBER
+          fi
+          echo "VERSION_NAME=$VERSION_NAME" >> $CM_ENV
+          echo "BUILD_NUMBER=$BUILD_NUMBER" >> $CM_ENV
 
       - name: Get Flutter packages
         script: flutter pub get
@@ -151,13 +169,25 @@ workflows:
       - name: Flutter test
         script: flutter test
 
-      - name: Build IPA
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios
+          pod repo update
+          pod install
+
+      - name: Set up code signing
+        script: xcode-project use-profiles
+
+      - name: Build iOS IPA
         script: |
           flutter build ipa --release \
+            --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER \
             --export-options-plist=/Users/builder/export_options.plist
 
-      - name: Build AAB
-        script: flutter build appbundle --release
+      - name: Build Android AAB
+        script: |
+          flutter build appbundle --release \
+            --build-name=$VERSION_NAME --build-number=$BUILD_NUMBER
 
     artifacts:
       - build/ios/ipa/*.ipa
@@ -167,9 +197,12 @@ workflows:
     publishing:
       app_store_connect:
         auth: integration
-        submit_to_testflight: false
+        submit_to_testflight: true
         submit_to_app_store: false
       google_play:
         credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
         track: internal
         submit_as_draft: true
+      email:
+        recipients: [nalhamzy@gmail.com]
+        notify: {success: true, failure: true}
