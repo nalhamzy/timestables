@@ -1,0 +1,47 @@
+name: timestables
+description: "Times Tables Trainer — calm, non-timed multiplication drills for grades 2-5, with parent progress dashboard."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # State management
+  flutter_riverpod: ^2.6.0
+
+  # Local persistence — mastery counts, settings, streak, IAP cache
+  shared_preferences: ^2.3.0
+
+  # IAP — StoreKit (iOS) + Play Billing (Android). No RevenueCat. (SPEC §3 + §7)
+  in_app_purchase: ^3.2.0
+
+  # Text-to-speech: device TTS engine, no network, no API key (SPEC §3)
+  flutter_tts: ^4.2.0
+
+  # Value equality for state models (TestResult, AppSettings, Entitlements)
+  equatable: ^2.0.5
+
+  # App version display in SettingsScreen
+  package_info_plus: ^8.0.0
+
+  # Privacy policy link in SettingsScreen
+  url_launcher: ^6.3.0
+
+  # Native share sheet for Parent Dashboard "Email report" (SPEC §9 + §B)
+  share_plus: ^10.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/

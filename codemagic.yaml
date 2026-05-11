@@ -1,0 +1,175 @@
+workflows:
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # ios-release  —  Build + sign IPA for App Store Connect
+  # ─────────────────────────────────────────────────────────────────────────────
+  ios-release:
+    name: iOS Release
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: ASC_API_KEY   # Codemagic ASC API key name
+
+    environment:
+      vars:
+        BUNDLE_ID: com.idealai.timestables
+        APP_STORE_APPLE_ID: "000000000"  # fill in after ASC app record created
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - google_play  # shared keystore group (not used on iOS but keeps parity)
+
+    scripts:
+      - name: Set up code signing
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Flutter analyze
+        script: flutter analyze --no-fatal-infos
+
+      - name: Flutter test
+        script: flutter test
+
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - flutter_drive.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false   # manual upload for v1.0.0; enable from v1.0.5
+        submit_to_app_store: false
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # android-release  —  Build signed AAB for Google Play
+  # ─────────────────────────────────────────────────────────────────────────────
+  android-release:
+    name: Android Release
+    max_build_duration: 60
+    instance_type: linux_x2
+
+    environment:
+      vars:
+        PACKAGE_NAME: com.idealai.timestables
+      flutter: stable
+      groups:
+        - google_play  # must contain: GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+                       # KEYSTORE (base64), KEY_ALIAS, KEY_PASSWORD, STORE_PASSWORD
+
+    scripts:
+      - name: Set up key.properties
+        script: |
+          echo "$KEYSTORE" | base64 --decode > $CM_BUILD_DIR/android/upload-keystore.jks
+          cat > $CM_BUILD_DIR/android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=../upload-keystore.jks
+          EOF
+
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Flutter analyze
+        script: flutter analyze --no-fatal-infos
+
+      - name: Flutter test
+        script: flutter test
+
+      - name: Build AAB
+        script: flutter build appbundle --release
+
+    artifacts:
+      - build/app/outputs/bundle/release/*.aab
+      - build/app/outputs/mapping/release/mapping.txt
+
+    publishing:
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # release-both  —  Trigger both iOS and Android in one click
+  # ─────────────────────────────────────────────────────────────────────────────
+  release-both:
+    name: Release Both Platforms
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    integrations:
+      app_store_connect: ASC_API_KEY
+
+    environment:
+      vars:
+        BUNDLE_ID: com.idealai.timestables
+        PACKAGE_NAME: com.idealai.timestables
+        APP_STORE_APPLE_ID: "000000000"
+      flutter: stable
+      xcode: latest
+      cocoapods: default
+      groups:
+        - google_play
+
+    scripts:
+      - name: Set up iOS code signing
+        script: |
+          keychain initialize
+          app-store-connect fetch-signing-files "$BUNDLE_ID" \
+            --type IOS_APP_STORE --create
+          keychain add-certificates
+          xcode-project use-profiles
+
+      - name: Set up Android key.properties
+        script: |
+          echo "$KEYSTORE" | base64 --decode > $CM_BUILD_DIR/android/upload-keystore.jks
+          cat > $CM_BUILD_DIR/android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=$KEY_ALIAS
+          storeFile=../upload-keystore.jks
+          EOF
+
+      - name: Get Flutter packages
+        script: flutter pub get
+
+      - name: Flutter analyze
+        script: flutter analyze --no-fatal-infos
+
+      - name: Flutter test
+        script: flutter test
+
+      - name: Build IPA
+        script: |
+          flutter build ipa --release \
+            --export-options-plist=/Users/builder/export_options.plist
+
+      - name: Build AAB
+        script: flutter build appbundle --release
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - build/app/outputs/bundle/release/*.aab
+      - build/app/outputs/mapping/release/mapping.txt
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: false
+        submit_to_app_store: false
+      google_play:
+        credentials: $GCLOUD_SERVICE_ACCOUNT_CREDENTIALS
+        track: internal
+        submit_as_draft: true
