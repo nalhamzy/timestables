@@ -13,7 +13,7 @@ workflows:
     environment:
       vars:
         BUNDLE_ID: com.idealai.timestables
-        APP_STORE_APPLE_ID: "000000000"  # fill in after ASC app record created
+        APP_STORE_APPLE_ID: "6768185530"  # fill in after ASC app record created
       flutter: stable
       xcode: latest
       cocoapods: default
@@ -116,7 +116,7 @@ workflows:
       vars:
         BUNDLE_ID: com.idealai.timestables
         PACKAGE_NAME: com.idealai.timestables
-        APP_STORE_APPLE_ID: "000000000"
+        APP_STORE_APPLE_ID: "6768185530"
       flutter: stable
       xcode: latest
       cocoapods: default
