@@ -2,7 +2,7 @@ name: timestables
 description: "Times Tables Trainer — calm, non-timed multiplication drills for grades 2-5, with parent progress dashboard."
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.0.1+2
 
 environment:
   sdk: ^3.5.0
